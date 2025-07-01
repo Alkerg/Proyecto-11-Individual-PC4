@@ -1,0 +1,804 @@
+From 0706ffcd31afbdc410c9e728731ccc392351ff8e Mon Sep 17 00:00:00 2001
+From: shifu <gabrielcastillejo25@gmail.com>
+Date: Mon, 30 Jun 2025 02:45:55 -0500
+Subject: [PATCH 1/6] fix: add missing environment variables for service
+ configuration
+
+---
+ src/k8s/auth_service.yaml | 10 ++++++++++
+ src/k8s/todo_service.yaml |  7 ++++++-
+ 2 files changed, 16 insertions(+), 1 deletion(-)
+
+diff --git a/src/k8s/auth_service.yaml b/src/k8s/auth_service.yaml
+index 413957c..4a7cb8f 100644
+--- a/src/k8s/auth_service.yaml
++++ b/src/k8s/auth_service.yaml
+@@ -58,3 +58,13 @@ spec:
+                 secretKeyRef:
+                   name: db-env-secret
+                   key: SECRET_DB_PASSWORD
++            - name: ALGORITHM
++              valueFrom:
++                configMapKeyRef:
++                  name: auth-env-config
++                  key: ALGORITHM
++            - name: SECRET_KEY
++              valueFrom:
++                secretKeyRef:
++                  name: auth-env-secret
++                  key: SECRET_KEY
+diff --git a/src/k8s/todo_service.yaml b/src/k8s/todo_service.yaml
+index c6ab2c1..6580b53 100644
+--- a/src/k8s/todo_service.yaml
++++ b/src/k8s/todo_service.yaml
+@@ -57,4 +57,9 @@ spec:
+               valueFrom:
+                 secretKeyRef:
+                   name: db-env-secret
+-                  key: SECRET_DB_PASSWORD
+\ No newline at end of file
++                  key: SECRET_DB_PASSWORD
++            - name: SECRET_KEY
++              valueFrom:
++                secretKeyRef:
++                  name: todo-env-secret
++                  key: SECRET_KEY
+-- 
+2.37.2.windows.2
+
+
+From 86e91db8d07d6004a2754f3ef113ade4443b6461 Mon Sep 17 00:00:00 2001
+From: shifu <gabrielcastillejo25@gmail.com>
+Date: Mon, 30 Jun 2025 02:46:02 -0500
+Subject: [PATCH 2/6] feat: add run_app.sh script to automate deployment
+
+---
+ run_app.sh | 28 ++++++++++++++++++++++++++++
+ 1 file changed, 28 insertions(+)
+ create mode 100644 run_app.sh
+
+diff --git a/run_app.sh b/run_app.sh
+new file mode 100644
+index 0000000..2e9026a
+--- /dev/null
++++ b/run_app.sh
+@@ -0,0 +1,28 @@
++#!/usr/bin/env bash
++set -e
++
++
++minikube start --driver=docker
++
++echo "Cambiando entorno Docker a Minikube"
++eval "$(minikube docker-env)"
++
++
++echo "Construyendo y cargando imágenes en Minikube"
++docker build -t auth-service src/auth_service/
++docker build -t todo-service src/todo_service/
++
++
++echo "Configurando secrets/configmaps"
++for ENV in db-env auth-env todo-env; do
++    echo "Ejecutando configuración para $ENV"
++    python3 src/env_secrets_configmaps.py "$ENV"
++done
++
++
++for SERVICE in db-env auth-env todo-env; do
++    echo "Desplegando $SERVICE"
++    python3 src/env_orchestrator.py deploy_service "$SERVICE"
++done
++
++echo "Todos los servicios han sido desplegados correctamente"
+-- 
+2.37.2.windows.2
+
+
+From 789414db37fea673a30b90d3c6b372f5c9a783af Mon Sep 17 00:00:00 2001
+From: shifu <gabrielcastillejo25@gmail.com>
+Date: Mon, 30 Jun 2025 02:46:29 -0500
+Subject: [PATCH 3/6] feat: add end-to-end tests for service integration
+
+---
+ README.md                 |  15 +++-
+ tests/pytest.ini          |   2 +
+ tests/test_e2e.py         | 166 ++++++++++++++++++++++++++++++++++++++
+ tests/test_orchestator.py |   5 +-
+ 4 files changed, 184 insertions(+), 4 deletions(-)
+ create mode 100644 tests/pytest.ini
+ create mode 100644 tests/test_e2e.py
+
+diff --git a/README.md b/README.md
+index 0d0e921..f88d7b5 100644
+--- a/README.md
++++ b/README.md
+@@ -3,14 +3,18 @@
+ ## Prerrequisitos
+ 
+ Antes de empezar, asegúrate de tener instalado y en funcionamiento:
++
+ - **Docker** (daemon corriendo):  
++
+   ```bash
+   sudo systemctl start docker  # o abre Docker Desktop en macOS/Windows
+ 
+ ## Desarrolladores
+ 
+ ### Instalación de Git Hooks
++
+ En la raíz del proyecto encontrarás el script setup.sh, que debes ejecutar solo la primera vez para configurar los hooks:
++
+ ```bash
+ # Desde la carpeta raíz del repo
+ bash setup.sh
+@@ -22,9 +26,10 @@ Este script hará lo siguiente:
+ - Configurará Git para que use .githooks/ como ruta de hooks
+ 
+ ### Workflow
++
+ #### **1.** Modificar o añadir código
+ 
+-#### **2.** Staging:
++#### **2.** Staging
+ 
+ ```bash
+ git add <archivo(s)>
+@@ -48,4 +53,10 @@ Al hacer git push, el hook pre-push:
+ 
+ - Intenta construir todos los Dockerfiles trackeados.
+ 
+-Si hay errores (p. ej. daemon detenido o sintaxis inválida), el push se bloquea.
+\ No newline at end of file
++Si hay errores (p. ej. daemon detenido o sintaxis inválida), el push se bloquea.
++
++# Tests
++
++Se crearon prubeas unitarias para verificar el correcto despliegue de los servicios (estados) y pruebas end to end para verificar los endpoints de los servicios
++
++![Descripción de la imagen](https://media.discordapp.net/attachments/678404322031042590/1389135173479567411/image.png?ex=68638472&is=686232f2&hm=f03c12b1d2ace86a4b4eff496f5575e5905ecd624edb43c814754b9643941467&=&format=webp&quality=lossless&width=1860&height=205)
+diff --git a/tests/pytest.ini b/tests/pytest.ini
+new file mode 100644
+index 0000000..b893048
+--- /dev/null
++++ b/tests/pytest.ini
+@@ -0,0 +1,2 @@
++[pytest]
++pythonpath = src
+\ No newline at end of file
+diff --git a/tests/test_e2e.py b/tests/test_e2e.py
+new file mode 100644
+index 0000000..94e9054
+--- /dev/null
++++ b/tests/test_e2e.py
+@@ -0,0 +1,166 @@
++import requests
++import pytest
++import time
++import subprocess
++
++SERVICES = ["db-env", "auth-env", "todo-env"]
++
++LABELS = {
++    "db-env": "db",
++    "auth-env": "auth-service",
++    "todo-env": "todo-service"
++}
++
++
++@pytest.fixture(scope="session", autouse=True)
++def deploy_all_services():
++    """Crea configmaps y secretos y despliega 
++    los servicios al inicio y luego los elimina"""
++
++    # Crea los configmaps y secretos antes del despliegue
++    for env in ["db-env", "auth-env", "todo-env"]:
++        result = subprocess.run(
++            ["python", "src/env_secrets_configmaps.py", env],
++            capture_output=True, text=True
++        )
++        assert result.returncode == 0
++
++    # Despliega los servicios
++    for service in SERVICES:
++        deploy = subprocess.run(
++            ["python", "src/env_orchestrator.py", "deploy_service", service],
++            capture_output=True, text=True
++        )
++        assert deploy.returncode == 0
++
++    # Espera a que los servicios esten listos
++    for service in SERVICES:
++        label = LABELS[service]
++        for i in range(20):
++            result = subprocess.run(
++                ["kubectl", "get", "pods", "-l", f"app={label}",
++                 "-o", "jsonpath={.items[0].status.containerStatuses[0].ready}"],
++                capture_output=True, text=True
++            )
++            if result.stdout.strip() == "true":
++                break
++            time.sleep(3)
++        else:
++            subprocess.run(["kubectl", "get", "pods", "-l", f"app={label}"])
++            subprocess.run(
++                ["kubectl", "describe", "pods", "-l", f"app={label}"])
++
++    yield  # Ejecuta los tests
++
++    # Eliminan los servicios
++    for service in SERVICES:
++        subprocess.run(
++            ["python", "src/env_orchestrator.py", "delete_service", service],
++            capture_output=True, text=True
++        )
++
++
++def get_service_url(service_name: str) -> str:
++    try:
++        result = subprocess.run(
++            ["minikube", "service", service_name, "--url"],
++            capture_output=True, text=True, check=True
++        )
++        return result.stdout.strip()
++    except subprocess.CalledProcessError as e:
++        pytest.fail(
++            f"No se pudo obtener la url para {service_name}")
++
++
++@pytest.fixture(scope="session")
++def auth_token():
++    """Registra y loguea al usuario
++        devuelve el token
++    """
++    auth_url = get_service_url("auth-service")
++
++    register_data = {
++        "username": "testuser",
++        "email": "testuser@example.com",
++        "password": "securepassword"
++    }
++    requests.post(auth_url + "/auth/register", data=register_data)
++
++    login_data = {
++        "username": "testuser",
++        "password": "securepassword"
++    }
++    r = requests.post(auth_url + "/auth/login", data=login_data)
++    assert r.status_code == 200
++    token = r.json().get("token")
++    assert token
++    return token
++
++
++@pytest.mark.order(1)
++def test_create_task(auth_token):
++    """Crea una tarea"""
++    todo_url = get_service_url("todo-service")
++    headers = {"Authorization": f"Bearer {auth_token}"}
++    task_data = {
++        "title": "Mi",
++        "description": "Descripción de prueba"
++    }
++
++    r = requests.post(todo_url + "/tasks", json=task_data, headers=headers)
++    assert r.status_code == 200
++    assert r.json().get("message") == "Tarea registrada"
++
++
++@pytest.mark.order(2)
++def test_get_tasks(auth_token):
++    """Obtiene las tareas del usuario"""
++    todo_url = get_service_url("todo-service")
++    headers = {"Authorization": f"Bearer {auth_token}"}
++
++    r = requests.get(todo_url + "/tasks", headers=headers)
++    assert r.status_code == 200
++    tasks = r.json()
++    assert isinstance(tasks, list)
++    assert len(tasks) > 0
++    assert "title" in tasks[0]
++    assert "description" in tasks[0]
++
++    # Guarda la id para las siguientes pruebas
++    test_get_tasks.task_id = tasks[0]["id"]
++
++
++@pytest.mark.order(3)
++def test_update_task(auth_token):
++    """Actualiza una tarea"""
++
++    todo_url = get_service_url("todo-service")
++    headers = {"Authorization": f"Bearer {auth_token}"}
++
++    # Usamos el ID de la prueba anterior
++    task_id = getattr(test_get_tasks, "task_id", None)
++    assert task_id is not None
++
++    updated_data = {
++        "title": "tare actualizada",
++        "description": "descripcion"
++    }
++
++    r = requests.put(f"{todo_url}/tasks/{task_id}",
++                     json=updated_data, headers=headers)
++    assert r.status_code == 200
++    assert r.json().get("message") == "Tarea actualizada"
++
++
++@pytest.mark.order(4)
++def test_delete_task(auth_token):
++    """Elimina una tarea"""
++    todo_url = get_service_url("todo-service")
++    headers = {"Authorization": f"Bearer {auth_token}"}
++
++    task_id = getattr(test_get_tasks, "task_id", None)
++    assert task_id is not None
++
++    r = requests.delete(f"{todo_url}/tasks/{task_id}", headers=headers)
++    assert r.status_code == 200
++    assert r.json().get("message") == "Tarea eliminada"
+diff --git a/tests/test_orchestator.py b/tests/test_orchestator.py
+index 2a9abe5..cd546ba 100644
+--- a/tests/test_orchestator.py
++++ b/tests/test_orchestator.py
+@@ -74,8 +74,9 @@ def test_deploy_service(env_name):
+     )  # más tiempo por el minikube service para que muestra la url
+ 
+     assert code in [0, -1]
+-    assert contains_url(
+-        out)
++    if env_name != "db-env":
++        assert contains_url(
++            out)
+ 
+ 
+ @pytest.mark.order(2)
+-- 
+2.37.2.windows.2
+
+
+From 71617be68329e448621644f148480df611807b0c Mon Sep 17 00:00:00 2001
+From: Alkerg <albert.arg500@gmail.com>
+Date: Mon, 30 Jun 2025 20:34:22 -0500
+Subject: [PATCH 4/6] feat: add todo-service helm chart
+
+---
+ todo-service-chart/.helmignore               | 23 +++++++++++++++
+ todo-service-chart/Chart.yaml                |  6 ++++
+ todo-service-chart/templates/deployment.yaml | 31 ++++++++++++++++++++
+ todo-service-chart/templates/service.yaml    | 14 +++++++++
+ todo-service-chart/values.yaml               | 18 ++++++++++++
+ 5 files changed, 92 insertions(+)
+ create mode 100644 todo-service-chart/.helmignore
+ create mode 100644 todo-service-chart/Chart.yaml
+ create mode 100644 todo-service-chart/templates/deployment.yaml
+ create mode 100644 todo-service-chart/templates/service.yaml
+ create mode 100644 todo-service-chart/values.yaml
+
+diff --git a/todo-service-chart/.helmignore b/todo-service-chart/.helmignore
+new file mode 100644
+index 0000000..0e8a0eb
+--- /dev/null
++++ b/todo-service-chart/.helmignore
+@@ -0,0 +1,23 @@
++# Patterns to ignore when building packages.
++# This supports shell glob matching, relative path matching, and
++# negation (prefixed with !). Only one pattern per line.
++.DS_Store
++# Common VCS dirs
++.git/
++.gitignore
++.bzr/
++.bzrignore
++.hg/
++.hgignore
++.svn/
++# Common backup files
++*.swp
++*.bak
++*.tmp
++*.orig
++*~
++# Various IDEs
++.project
++.idea/
++*.tmproj
++.vscode/
+diff --git a/todo-service-chart/Chart.yaml b/todo-service-chart/Chart.yaml
+new file mode 100644
+index 0000000..1a4f5bb
+--- /dev/null
++++ b/todo-service-chart/Chart.yaml
+@@ -0,0 +1,6 @@
++apiVersion: v2
++name: todo-service-chart
++description: A helm chart for todo service
++type: application
++version: 1.0.0
++appVersion: "1.0.0"
+diff --git a/todo-service-chart/templates/deployment.yaml b/todo-service-chart/templates/deployment.yaml
+new file mode 100644
+index 0000000..873d516
+--- /dev/null
++++ b/todo-service-chart/templates/deployment.yaml
+@@ -0,0 +1,31 @@
++apiVersion: apps/v1
++kind: Deployment
++metadata:
++  name: {{ .Chart.Name }}
++spec:
++  replicas: {{ .Values.replicaCount }}
++  selector:
++    matchLabels:
++      app: {{ .Chart.Name }}
++  template:
++    metadata:
++      labels:
++        app: {{ .Chart.Name }}
++    spec:
++      containers:
++        - name: {{ .Chart.Name }}
++          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
++          imagePullPolicy: {{ .Values.image.pullPolicy }}
++          ports:
++            - containerPort: {{ .Values.service.port }}
++          env:
++            - name: DB_HOST
++              value: {{ .Values.env.DB_HOST | quote }}
++            - name: DB_PORT
++              value: {{ .Values.env.DB_PORT | quote }}
++            - name: DB_NAME
++              value: {{ .Values.env.DB_NAME | quote }}
++            - name: DB_USER
++              value: {{ .Values.env.DB_USER | quote }}
++            - name: DB_PASSWORD
++              value: {{ .Values.env.DB_PASSWORD | quote }}
+diff --git a/todo-service-chart/templates/service.yaml b/todo-service-chart/templates/service.yaml
+new file mode 100644
+index 0000000..2c61445
+--- /dev/null
++++ b/todo-service-chart/templates/service.yaml
+@@ -0,0 +1,14 @@
++apiVersion: v1
++kind: Service
++metadata:
++  name: {{ .Chart.Name }}
++spec:
++  type: {{ .Values.service.type }}
++  selector:
++    app: {{ .Chart.Name }}
++  ports:
++  - port: {{ .Values.service.port }}
++    targetPort: {{ .Values.service.port }}
++    {{- if .Values.service.nodePort }}
++    nodePort: {{ .Values.service.nodePort }}
++    {{- end }}
+diff --git a/todo-service-chart/values.yaml b/todo-service-chart/values.yaml
+new file mode 100644
+index 0000000..5d826ff
+--- /dev/null
++++ b/todo-service-chart/values.yaml
+@@ -0,0 +1,18 @@
++replicaCount: 1
++
++image:
++  repository: todo-service
++  tag: latest
++  pullPolicy: Never
++
++service:
++  type: NodePort
++  port: 8002
++  nodePort: null
++
++env:
++  DB_HOST: db
++  DB_PORT: "5432"
++  DB_NAME: tododb
++  DB_USER: user
++  DB_PASSWORD: password
+-- 
+2.37.2.windows.2
+
+
+From fc21ac6b6737e8562cc92222f1f4e30400c2cc8f Mon Sep 17 00:00:00 2001
+From: Alkerg <albert.arg500@gmail.com>
+Date: Mon, 30 Jun 2025 20:34:51 -0500
+Subject: [PATCH 5/6] feat: add db-service helm chart
+
+---
+ db-service-chart/Chart.yaml                |  6 ++++
+ db-service-chart/templates/configmap.yaml  |  8 +++++
+ db-service-chart/templates/deployment.yaml | 42 ++++++++++++++++++++++
+ db-service-chart/templates/secrets.yaml    |  8 +++++
+ db-service-chart/templates/service.yaml    | 10 ++++++
+ db-service-chart/values.yaml               | 18 ++++++++++
+ 6 files changed, 92 insertions(+)
+ create mode 100644 db-service-chart/Chart.yaml
+ create mode 100644 db-service-chart/templates/configmap.yaml
+ create mode 100644 db-service-chart/templates/deployment.yaml
+ create mode 100644 db-service-chart/templates/secrets.yaml
+ create mode 100644 db-service-chart/templates/service.yaml
+ create mode 100644 db-service-chart/values.yaml
+
+diff --git a/db-service-chart/Chart.yaml b/db-service-chart/Chart.yaml
+new file mode 100644
+index 0000000..03eb1c9
+--- /dev/null
++++ b/db-service-chart/Chart.yaml
+@@ -0,0 +1,6 @@
++apiVersion: v2
++name: db
++description: Helm chart for database service
++type: application
++version: 1.0.0
++appVersion: "15"
+diff --git a/db-service-chart/templates/configmap.yaml b/db-service-chart/templates/configmap.yaml
+new file mode 100644
+index 0000000..e0e4b84
+--- /dev/null
++++ b/db-service-chart/templates/configmap.yaml
+@@ -0,0 +1,8 @@
++apiVersion: v1
++kind: ConfigMap
++metadata:
++  name: db-service-config
++data:
++  DB_NAME: {{ .Values.env.DB_NAME | quote }}
++  DB_HOST: {{ .Values.env.DB_HOST | quote }}
++  DB_PORT: {{ .Values.env.DB_PORT | quote }}
+diff --git a/db-service-chart/templates/deployment.yaml b/db-service-chart/templates/deployment.yaml
+new file mode 100644
+index 0000000..0c24872
+--- /dev/null
++++ b/db-service-chart/templates/deployment.yaml
+@@ -0,0 +1,42 @@
++apiVersion: apps/v1
++kind: Deployment
++metadata:
++  name: {{ .Chart.Name }}
++spec:
++  replicas: 1
++  selector:
++    matchLabels:
++      app: {{ .Chart.Name }}
++  template:
++    metadata:
++      labels:
++        app: {{ .Chart.Name }}
++    spec:
++      containers:
++        - name: {{ .Chart.Name }}
++          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
++          imagePullPolicy: {{ .Values.image.pullPolicy }}
++          ports:
++            - containerPort: {{ .Values.service.port }}
++          env:
++            - name: POSTGRES_DB
++              valueFrom:
++                configMapKeyRef:
++                  name: db-service-config
++                  key: DB_NAME
++            - name: POSTGRES_USER
++              valueFrom:
++                secretKeyRef:
++                  name: db-service-secret
++                  key: DB_USER
++            - name: POSTGRES_PASSWORD
++              valueFrom:
++                secretKeyRef:
++                  name: db-service-secret
++                  key: DB_PASSWORD
++          volumeMounts:
++            - name: postgres-storage
++              mountPath: {{ .Values.storage.mountPath }}
++      volumes:
++        - name: postgres-storage
++          emptyDir: {}
+diff --git a/db-service-chart/templates/secrets.yaml b/db-service-chart/templates/secrets.yaml
+new file mode 100644
+index 0000000..121721f
+--- /dev/null
++++ b/db-service-chart/templates/secrets.yaml
+@@ -0,0 +1,8 @@
++apiVersion: v1
++kind: Secret
++metadata:
++  name: db-service-secret
++type: Opaque
++stringData:
++  DB_USER: {{ .Values.env.DB_USER | quote }}
++  DB_PASSWORD: {{ .Values.env.DB_PASSWORD | quote }}
+diff --git a/db-service-chart/templates/service.yaml b/db-service-chart/templates/service.yaml
+new file mode 100644
+index 0000000..d7e9531
+--- /dev/null
++++ b/db-service-chart/templates/service.yaml
+@@ -0,0 +1,10 @@
++apiVersion: v1
++kind: Service
++metadata:
++  name: {{ .Chart.Name }}
++spec:
++  selector:
++    app: {{ .Chart.Name }}
++  ports:
++    - port: {{ .Values.service.port }}
++      targetPort: {{ .Values.service.port }}
+diff --git a/db-service-chart/values.yaml b/db-service-chart/values.yaml
+new file mode 100644
+index 0000000..c681e7a
+--- /dev/null
++++ b/db-service-chart/values.yaml
+@@ -0,0 +1,18 @@
++image:
++  repository: postgres
++  tag: "15"
++  pullPolicy: IfNotPresent
++
++service:
++  port: 5432
++
++storage:
++  mountPath: /var/lib/postgresql/data
++  size: 1Gi
++
++env:
++  DB_NAME: tododb
++  DB_HOST: db
++  DB_PORT: "5432"
++  DB_USER: user
++  DB_PASSWORD: password
+-- 
+2.37.2.windows.2
+
+
+From 84b22ac0c17714519443b91a1802f9f353bdf2e6 Mon Sep 17 00:00:00 2001
+From: Alkerg <albert.arg500@gmail.com>
+Date: Mon, 30 Jun 2025 20:35:18 -0500
+Subject: [PATCH 6/6] feat: add auth-service helm chart
+
+---
+ auth-service-chart/.helmignore               | 23 +++++++++++++++
+ auth-service-chart/Chart.yaml                |  6 ++++
+ auth-service-chart/templates/deployment.yaml | 31 ++++++++++++++++++++
+ auth-service-chart/templates/service.yaml    | 14 +++++++++
+ auth-service-chart/values.yaml               | 22 ++++++++++++++
+ 5 files changed, 96 insertions(+)
+ create mode 100644 auth-service-chart/.helmignore
+ create mode 100644 auth-service-chart/Chart.yaml
+ create mode 100644 auth-service-chart/templates/deployment.yaml
+ create mode 100644 auth-service-chart/templates/service.yaml
+ create mode 100644 auth-service-chart/values.yaml
+
+diff --git a/auth-service-chart/.helmignore b/auth-service-chart/.helmignore
+new file mode 100644
+index 0000000..0e8a0eb
+--- /dev/null
++++ b/auth-service-chart/.helmignore
+@@ -0,0 +1,23 @@
++# Patterns to ignore when building packages.
++# This supports shell glob matching, relative path matching, and
++# negation (prefixed with !). Only one pattern per line.
++.DS_Store
++# Common VCS dirs
++.git/
++.gitignore
++.bzr/
++.bzrignore
++.hg/
++.hgignore
++.svn/
++# Common backup files
++*.swp
++*.bak
++*.tmp
++*.orig
++*~
++# Various IDEs
++.project
++.idea/
++*.tmproj
++.vscode/
+diff --git a/auth-service-chart/Chart.yaml b/auth-service-chart/Chart.yaml
+new file mode 100644
+index 0000000..5ef9be3
+--- /dev/null
++++ b/auth-service-chart/Chart.yaml
+@@ -0,0 +1,6 @@
++apiVersion: v2
++name: auth-service-chart
++description: A helm chart for auth service
++type: application
++version: 1.0.0
++appVersion: "1.0.0"
+diff --git a/auth-service-chart/templates/deployment.yaml b/auth-service-chart/templates/deployment.yaml
+new file mode 100644
+index 0000000..9316139
+--- /dev/null
++++ b/auth-service-chart/templates/deployment.yaml
+@@ -0,0 +1,31 @@
++apiVersion: apps/v1
++kind: Deployment
++metadata:
++  name: {{ .Chart.Name }}
++spec:
++  replicas: {{ .Values.replicaCount }}
++  selector:
++    matchLabels:
++      app: {{ .Chart.Name }}
++  template:
++    metadata:
++      labels:
++        app: {{ .Chart.Name }}
++    spec:
++      containers:
++        - name: {{ .Chart.Name }}
++          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
++          imagePullPolicy: {{ .Values.image.pullPolicy }}
++          ports:
++            - containerPort: {{ .Values.service.port }}
++          env:
++            - name: DB_HOST
++              value: {{ .Values.env.DB_HOST | quote}}
++            - name: DB_PORT
++              value: {{ .Values.env.DB_PORT | quote}}
++            - name: DB_NAME
++              value: {{ .Values.env.DB_NAME | quote}}
++            - name: DB_USER
++              value: {{ .Values.env.DB_USER | quote}}
++            - name: DB_PASSWORD
++              value: {{ .Values.env.DB_PASSWORD | quote}}
+diff --git a/auth-service-chart/templates/service.yaml b/auth-service-chart/templates/service.yaml
+new file mode 100644
+index 0000000..2c61445
+--- /dev/null
++++ b/auth-service-chart/templates/service.yaml
+@@ -0,0 +1,14 @@
++apiVersion: v1
++kind: Service
++metadata:
++  name: {{ .Chart.Name }}
++spec:
++  type: {{ .Values.service.type }}
++  selector:
++    app: {{ .Chart.Name }}
++  ports:
++  - port: {{ .Values.service.port }}
++    targetPort: {{ .Values.service.port }}
++    {{- if .Values.service.nodePort }}
++    nodePort: {{ .Values.service.nodePort }}
++    {{- end }}
+diff --git a/auth-service-chart/values.yaml b/auth-service-chart/values.yaml
+new file mode 100644
+index 0000000..1b26e65
+--- /dev/null
++++ b/auth-service-chart/values.yaml
+@@ -0,0 +1,22 @@
++replicaCount: 1
++
++image:
++  repository: auth-service
++  pullPolicy: Never
++  tag: latest
++
++imagePullSecrets: []
++nameOverride: ""
++fullnameOverride: ""
++
++service:
++  type: NodePort
++  port: 8000
++  nodePort: null
++
++env:
++  DB_HOST: db
++  DB_PORT: "5432"
++  DB_NAME: tododb
++  DB_USER: user
++  DB_PASSWORD: password
+\ No newline at end of file
+-- 
+2.37.2.windows.2
+
