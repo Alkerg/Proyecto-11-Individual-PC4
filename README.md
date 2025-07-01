@@ -14,11 +14,11 @@ sercicios usando docker-compose y kubernetes con minikube y kubectl.
 
 **Videos de los sprints:**
 
-[Link de la carpeta]()
+[Link de la carpeta](https://drive.google.com/drive/folders/1Tu_NO_KoLuQU6MjRN5t3LPo5rVpqXpjN?usp=sharing)
 
-[Video Sprint 1 individual]()
+[Video Sprint 1 individual](https://drive.google.com/file/d/162RGNKb3crJEnzP4znzrhonRtOl_feoB/view?usp=drive_link)
 
-[Video Sprint 2 individual]()
+[Video Sprint 2 individual](https://drive.google.com/file/d/1X1eP8hvtKnZf0O2r5zrZ6szpMG7osmtc/view?usp=sharing)
 
 [Video Sprint 3 individual]()
 
