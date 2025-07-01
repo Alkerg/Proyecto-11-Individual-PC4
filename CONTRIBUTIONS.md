@@ -5,7 +5,7 @@
   Commit: `feat: add issue template and improve .gitignore`  
   Commit ID: `f3d761ce3a9a8aebf645ad64b49ef196d78e9855`
 
-  - **Jun 24, 2025**: Creé un servicio de autenticación usando FastAPI con JWT 
+- **Jun 24, 2025**: Creé un servicio de autenticación usando FastAPI con JWT 
   Commit: `feat: add basic auth service methods and endpoints`  
   Commit ID: `9a58530c9825eead8aa5a56ea180a9b7cb3c77da`
 
